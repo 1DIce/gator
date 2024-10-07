@@ -75,6 +75,14 @@ func listUsersCommand(state *State, arguments []string) error {
 	return nil
 }
 
+func resetUsersCommand(state *State, arguments []string) error {
+	err := state.db.DeleteAllUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("Failed to delete users with error: %v", err)
+	}
+	return nil
+}
+
 func getCliCommands() map[string]cliCommand {
 	return map[string]cliCommand{
 		"login": {
@@ -88,6 +96,10 @@ func getCliCommands() map[string]cliCommand {
 		"users": {
 			description: "Lists all registered users",
 			callback:    listUsersCommand,
+		},
+		"reset": {
+			description: "Delete all users",
+			callback:    resetUsersCommand,
 		},
 	}
 }
