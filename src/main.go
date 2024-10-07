@@ -10,6 +10,7 @@ import (
 
 	"github.com/1DIce/gator/internal/config"
 	"github.com/1DIce/gator/internal/database"
+	"github.com/1DIce/gator/internal/rss"
 	"github.com/google/uuid"
 
 	// Importing postgresql driver. It is a dependency of sqlc
@@ -95,6 +96,15 @@ func resetUsersCommand(state *State, arguments []string) error {
 	return nil
 }
 
+func fetchFeedCommand(state *State, arguments []string) error {
+	feed, err := rss.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%v\n", *feed)
+	return nil
+}
+
 func getCliCommands() map[string]cliCommand {
 	return map[string]cliCommand{
 		"login": {
@@ -112,6 +122,10 @@ func getCliCommands() map[string]cliCommand {
 		"reset": {
 			description: "Delete all users",
 			callback:    resetUsersCommand,
+		},
+		"agg": {
+			description: "start long running aggregator service",
+			callback:    fetchFeedCommand,
 		},
 	}
 }
