@@ -72,6 +72,18 @@ func registerUserCommand(state *State, arguments []string) error {
 }
 
 func listUsersCommand(state *State, arguments []string) error {
+	users, err := state.db.GetUsers(context.Background())
+	if err != nil {
+		return fmt.Errorf("Failed to fetch the list of users")
+	}
+
+	for _, user := range users {
+		if user.Name == state.config.CurrentUserName {
+			fmt.Printf("* %s (current)\n", user.Name)
+		} else {
+			fmt.Printf("* %s\n", user.Name)
+		}
+	}
 	return nil
 }
 
