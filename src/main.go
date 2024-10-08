@@ -105,6 +105,55 @@ func fetchFeedCommand(state *State, arguments []string) error {
 	return nil
 }
 
+func addFeedCommand(state *State, arguments []string) error {
+	if len(arguments) == 0 || arguments[0] == "" {
+		return fmt.Errorf("Feeda url input is missing")
+	}
+	if len(arguments) > 2 {
+		return fmt.Errorf("Too many arguments! 'addfeed' command expects a 2 arguments: name and feed url")
+	}
+
+	user, err := state.db.GetUser(context.Background(), state.config.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("No logged in user found")
+	}
+
+	feedUrl := arguments[1]
+	feedName := arguments[0]
+
+	// We want to make sure the the url points to a valid feed
+	if _, err := rss.FetchFeed(context.Background(), feedUrl); err != nil {
+		return fmt.Errorf("Failed to fetch feed with error: %v", err)
+	}
+
+	now := time.Now()
+	if _, err := state.db.CreateFeed(context.Background(), database.CreateFeedParams{
+		ID:        uuid.New(),
+		Name:      feedName,
+		Url:       feedUrl,
+		CreatedAt: now,
+		UpdatedAt: now,
+		UserID:    user.ID,
+	}); err != nil {
+		return fmt.Errorf("Failed to add feed for url '%s' with error: %v", feedUrl, err)
+	}
+	fmt.Printf("Successfully add feed with name '%s' and url '%s'", feedName, feedUrl)
+	return nil
+}
+
+func listFeedsCommand(state *State, arguments []string) error {
+	feeds, err := state.db.ListFeeds(context.Background())
+	if err != nil {
+		return fmt.Errorf("Failed to fetch feeds with error: %v", err)
+	}
+
+	fmt.Println("Name\tUrl\tUser")
+	for _, feed := range feeds {
+		fmt.Printf("%s\t%s\t%s\n", feed.Name, feed.Url, feed.UserName)
+	}
+	return nil
+}
+
 func getCliCommands() map[string]cliCommand {
 	return map[string]cliCommand{
 		"login": {
@@ -126,6 +175,14 @@ func getCliCommands() map[string]cliCommand {
 		"agg": {
 			description: "start long running aggregator service",
 			callback:    fetchFeedCommand,
+		},
+		"addfeed": {
+			description: "add a new RSS feed url",
+			callback:    addFeedCommand,
+		},
+		"feeds": {
+			description: "list all stored RSS feeds",
+			callback:    listFeedsCommand,
 		},
 	}
 }
