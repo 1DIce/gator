@@ -214,6 +214,27 @@ func listFollowedFeedsCommand(state *State, arguments []string, user database.Us
 	return nil
 }
 
+func unfollowFeedCommand(state *State, arguments []string, user database.User) error {
+	if len(arguments) == 0 || arguments[0] == "" {
+		return fmt.Errorf("Feed url input is missing")
+	}
+	if len(arguments) > 1 {
+		return fmt.Errorf("Too many arguments! 'unfollow' command expects a single argument")
+	}
+
+	feedUrl := arguments[0]
+	if _, err := state.db.DeleteFeedFollow(context.Background(), database.DeleteFeedFollowParams{
+		UserID:  user.ID,
+		FeedUrl: feedUrl,
+	}); err != nil {
+		return fmt.Errorf("Failed to delete follow", err)
+	}
+
+	fmt.Printf("Successfully unfollowed feed\n")
+
+	return nil
+}
+
 func getCliCommands() map[string]cliCommand {
 	return map[string]cliCommand{
 		"login": {
@@ -251,6 +272,10 @@ func getCliCommands() map[string]cliCommand {
 		"following": {
 			description: "Lists all feeds the user is following",
 			callback:    middlewareLoggedIn(listFollowedFeedsCommand),
+		},
+		"unfollow": {
+			description: "Unfollows a given feed url",
+			callback:    middlewareLoggedIn(unfollowFeedCommand),
 		},
 	}
 }

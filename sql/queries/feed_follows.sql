@@ -25,4 +25,10 @@ INNER JOIN users
 ON feed_follows.user_id = users.id
 WHERE users.id = $1;
 
-
+-- name: DeleteFeedFollow :one
+DELETE FROM feed_follows
+USING feeds
+  WHERE feed_follows.feed_id = feeds.id AND
+  feed_follows.user_id = $1 AND
+  feeds.url = sqlc.arg(feed_url)
+RETURNING feed_follows.*;
