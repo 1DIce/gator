@@ -27,6 +27,16 @@ type cliCommand struct {
 	callback    func(state *State, arguments []string) error
 }
 
+func middlewareLoggedIn(handler func(state *State, arguments []string, user database.User) error) func(*State, []string) error {
+	return func(state *State, arguments []string) error {
+		user, err := state.db.GetUser(context.Background(), state.config.CurrentUserName)
+		if err != nil {
+			return fmt.Errorf("User with name '%s' does not exist", state.config.CurrentUserName)
+		}
+		return handler(state, arguments, user)
+	}
+}
+
 func loginCommand(state *State, arguments []string) error {
 	if len(arguments) == 0 || arguments[0] == "" {
 		return fmt.Errorf("User name input is missing")
@@ -105,17 +115,12 @@ func fetchFeedCommand(state *State, arguments []string) error {
 	return nil
 }
 
-func addFeedCommand(state *State, arguments []string) error {
+func addFeedCommand(state *State, arguments []string, user database.User) error {
 	if len(arguments) == 0 || arguments[0] == "" {
-		return fmt.Errorf("Feeda url input is missing")
+		return fmt.Errorf("Feed url input is missing")
 	}
 	if len(arguments) > 2 {
 		return fmt.Errorf("Too many arguments! 'addfeed' command expects a 2 arguments: name and feed url")
-	}
-
-	user, err := state.db.GetUser(context.Background(), state.config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("No logged in user found")
 	}
 
 	feedUrl := arguments[1]
@@ -165,17 +170,12 @@ func listFeedsCommand(state *State, arguments []string) error {
 	return nil
 }
 
-func followFeedCommand(state *State, arguments []string) error {
+func followFeedCommand(state *State, arguments []string, user database.User) error {
 	if len(arguments) == 0 || arguments[0] == "" {
 		return fmt.Errorf("Feed url input is missing")
 	}
 	if len(arguments) > 1 {
 		return fmt.Errorf("Too many arguments! 'follow' command expects a single argument")
-	}
-
-	user, err := state.db.GetUser(context.Background(), state.config.CurrentUserName)
-	if err != nil {
-		return fmt.Errorf("Failed to find user info for current user name: %w", err)
 	}
 
 	feedUrl := arguments[0]
@@ -202,8 +202,8 @@ func followFeedCommand(state *State, arguments []string) error {
 	return nil
 }
 
-func listFollowedFeedsCommand(state *State, arguments []string) error {
-	follows, err := state.db.GetFeedFollowsForUser(context.Background(), state.config.CurrentUserName)
+func listFollowedFeedsCommand(state *State, arguments []string, user database.User) error {
+	follows, err := state.db.GetFeedFollowsForUser(context.Background(), user.ID)
 	if err != nil {
 		return fmt.Errorf("Failed to fetch followed feeds: %w", err)
 	}
@@ -238,7 +238,7 @@ func getCliCommands() map[string]cliCommand {
 		},
 		"addfeed": {
 			description: "add a new RSS feed url",
-			callback:    addFeedCommand,
+			callback:    middlewareLoggedIn(addFeedCommand),
 		},
 		"feeds": {
 			description: "list all stored RSS feeds",
@@ -246,11 +246,11 @@ func getCliCommands() map[string]cliCommand {
 		},
 		"follow": {
 			description: "Follow a registered feed by url",
-			callback:    followFeedCommand,
+			callback:    middlewareLoggedIn(followFeedCommand),
 		},
 		"following": {
 			description: "Lists all feeds the user is following",
-			callback:    listFollowedFeedsCommand,
+			callback:    middlewareLoggedIn(listFollowedFeedsCommand),
 		},
 	}
 }
