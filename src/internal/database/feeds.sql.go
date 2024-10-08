@@ -77,6 +77,27 @@ func (q *Queries) GetFeed(ctx context.Context, url string) (Feed, error) {
 	return i, err
 }
 
+const getNextFeedToFetch = `-- name: GetNextFeedToFetch :one
+SELECT id, url, name, created_at, updated_at, user_id, last_fetched_at FROM feeds
+ORDER BY last_fetched_at ASC NULLS FIRST
+LIMIT 1
+`
+
+func (q *Queries) GetNextFeedToFetch(ctx context.Context) (Feed, error) {
+	row := q.db.QueryRowContext(ctx, getNextFeedToFetch)
+	var i Feed
+	err := row.Scan(
+		&i.ID,
+		&i.Url,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.UserID,
+		&i.LastFetchedAt,
+	)
+	return i, err
+}
+
 const listFeeds = `-- name: ListFeeds :many
 SELECT feeds.url, feeds.name, users.name as user_name from feeds
 INNER JOIN users ON feeds.user_id = users.id

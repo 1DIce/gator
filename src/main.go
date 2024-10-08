@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/1DIce/gator/internal/config"
@@ -14,7 +18,7 @@ import (
 	"github.com/google/uuid"
 
 	// Importing postgresql driver. It is a dependency of sqlc
-	_ "github.com/lib/pq"
+	pg "github.com/lib/pq"
 )
 
 type State struct {
@@ -106,13 +110,94 @@ func resetUsersCommand(state *State, arguments []string) error {
 	return nil
 }
 
-func fetchFeedCommand(state *State, arguments []string) error {
-	feed, err := rss.FetchFeed(context.Background(), "https://www.wagslane.dev/index.xml")
-	if err != nil {
-		return err
+func aggregateFeedsCommand(state *State, arguments []string) error {
+	if len(arguments) == 0 || arguments[0] == "" {
+		return fmt.Errorf("Timer input is missing")
 	}
-	fmt.Printf("%v\n", *feed)
+	if len(arguments) > 1 {
+		return fmt.Errorf("Too many arguments! 'agg' command expects a single argument")
+	}
+
+	timeBetweenRequests, err := time.ParseDuration(arguments[0])
+	if err != nil {
+		return fmt.Errorf("timer format is invalid: %w", err)
+	}
+	fmt.Printf("Collecting feeds every %s\n\n", timeBetweenRequests.String())
+
+	ticker := time.NewTicker(timeBetweenRequests)
+	for ; ; <-ticker.C {
+		scrapeFeeds(state)
+		fmt.Println("")
+		fmt.Printf("Waiting %s to fetch the next...\n\n", timeBetweenRequests.String())
+	}
+}
+
+func scrapeFeeds(state *State) error {
+	feed, err := state.db.GetNextFeedToFetch(context.Background())
+	if err != nil {
+		return fmt.Errorf("Failed to get next feed to fetch: %w", err)
+	}
+
+	feedResponse, err := rss.FetchFeed(context.Background(), feed.Url)
+	if err != nil {
+		return fmt.Errorf("Failed to fetch feed: %w", err)
+	}
+
+	fmt.Printf("Feed items from '%s':\n", feed.Url)
+	for _, feedItem := range feedResponse.Channel.Item {
+		fmt.Printf("%s\n", feedItem.Title)
+
+		publishedAt, parseErr := parseRssPublicationDate(feedItem.PubDate)
+		if parseErr != nil {
+			return fmt.Errorf("Failed to parse publication date: %w", parseErr)
+		}
+
+		post, err := state.db.CreatePost(context.Background(), database.CreatePostParams{
+			ID:        uuid.New(),
+			Url:       feedItem.Link,
+			Title:     feedItem.Title,
+			CreatedAt: time.Now(),
+			Description: sql.NullString{
+				String: feedItem.Description,
+				Valid:  true,
+			},
+			PublishedAt: sql.NullTime{
+				Time:  publishedAt,
+				Valid: true,
+			},
+			FeedID: feed.ID,
+		})
+		if err != nil {
+			var postgresErr *pg.Error
+			// If the post already exists we are just ignoring the error. 23505 is a duplicate key error
+			if errors.As(err, &postgresErr) && postgresErr.Code != "23505" {
+				return fmt.Errorf("Unexpected error occurred during post creation: %w", err)
+			}
+			continue
+		}
+
+		fmt.Printf("Added post '%s'\n", post.Title)
+	}
+
+	if _, err := state.db.MarkFeedFetched(context.Background(), database.MarkFeedFetchedParams{
+		ID:            feed.ID,
+		LastFetchedAt: sql.NullTime{Time: time.Now(), Valid: true},
+	}); err != nil {
+		return fmt.Errorf("Failed to update last fetched timestamp: %v", err)
+	}
+
 	return nil
+}
+
+func parseRssPublicationDate(rssPublicationDate string) (time.Time, error) {
+	// the input date comes in this format: Sun, 03 Dec 2023 00:00:00 +0000
+	timeLayout := "2006-Jan-02"
+	splits := strings.Split(rssPublicationDate, " ")
+	relevantSplits := splits[1:4]
+	slices.Reverse(relevantSplits)
+	joined := strings.Join(relevantSplits, "-")
+	fmt.Println(joined)
+	return time.Parse(timeLayout, joined)
 }
 
 func addFeedCommand(state *State, arguments []string, user database.User) error {
@@ -235,6 +320,32 @@ func unfollowFeedCommand(state *State, arguments []string, user database.User) e
 	return nil
 }
 
+func browsePostsCommand(state *State, arguments []string, user database.User) error {
+
+	limit := 2
+	if len(arguments) > 0 {
+		parsedLimit, err := strconv.Atoi(arguments[0])
+		if err != nil {
+			return fmt.Errorf("The limit input is not a valid integer: %w", err)
+		}
+		limit = int(parsedLimit)
+	}
+
+	posts, err := state.db.GetPostsForUser(context.Background(), database.GetPostsForUserParams{
+		UserID: user.ID,
+		Limit:  int32(limit),
+	})
+	if err != nil {
+		return fmt.Errorf("Failed to retrieve posts: %w", err)
+	}
+
+	for _, post := range posts {
+		fmt.Printf("%s\t%s\n", post.Title, post.Url)
+	}
+
+	return nil
+}
+
 func getCliCommands() map[string]cliCommand {
 	return map[string]cliCommand{
 		"login": {
@@ -255,7 +366,7 @@ func getCliCommands() map[string]cliCommand {
 		},
 		"agg": {
 			description: "start long running aggregator service",
-			callback:    fetchFeedCommand,
+			callback:    aggregateFeedsCommand,
 		},
 		"addfeed": {
 			description: "add a new RSS feed url",
@@ -276,6 +387,10 @@ func getCliCommands() map[string]cliCommand {
 		"unfollow": {
 			description: "Unfollows a given feed url",
 			callback:    middlewareLoggedIn(unfollowFeedCommand),
+		},
+		"browse": {
+			description: "List saved posts with an optional limit",
+			callback:    middlewareLoggedIn(browsePostsCommand),
 		},
 	}
 }
