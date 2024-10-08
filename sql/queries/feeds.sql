@@ -10,6 +10,16 @@ VALUES (
 )
 RETURNING *;
 
+-- name: GetFeed :one
+SELECT * FROM feeds
+WHERE url = $1 LIMIT 1;
+
 -- name: ListFeeds :many
 SELECT feeds.url, feeds.name, users.name as user_name from feeds
 INNER JOIN users ON feeds.user_id = users.id;
+
+-- name: MarkFeedFetched :one
+UPDATE feeds
+SET last_fetched_at = $2, updated_at = $2
+WHERE id = $1
+RETURNING *;

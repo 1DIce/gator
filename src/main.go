@@ -127,17 +127,28 @@ func addFeedCommand(state *State, arguments []string) error {
 	}
 
 	now := time.Now()
-	if _, err := state.db.CreateFeed(context.Background(), database.CreateFeedParams{
+	feed, err := state.db.CreateFeed(context.Background(), database.CreateFeedParams{
 		ID:        uuid.New(),
 		Name:      feedName,
 		Url:       feedUrl,
 		CreatedAt: now,
 		UpdatedAt: now,
 		UserID:    user.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("Failed to add feed for url '%s' with error: %v", feedUrl, err)
 	}
-	fmt.Printf("Successfully add feed with name '%s' and url '%s'", feedName, feedUrl)
+	fmt.Printf("Successfully added feed with name '%s' and url '%s'\n", feedName, feedUrl)
+
+	state.db.CreateFeedFollow(context.Background(), database.CreateFeedFollowParams{
+		ID:        uuid.New(),
+		FeedID:    feed.ID,
+		UserID:    user.ID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	})
+	fmt.Printf("You are now following '%s'\n", feedName)
+
 	return nil
 }
 
@@ -150,6 +161,55 @@ func listFeedsCommand(state *State, arguments []string) error {
 	fmt.Println("Name\tUrl\tUser")
 	for _, feed := range feeds {
 		fmt.Printf("%s\t%s\t%s\n", feed.Name, feed.Url, feed.UserName)
+	}
+	return nil
+}
+
+func followFeedCommand(state *State, arguments []string) error {
+	if len(arguments) == 0 || arguments[0] == "" {
+		return fmt.Errorf("Feed url input is missing")
+	}
+	if len(arguments) > 1 {
+		return fmt.Errorf("Too many arguments! 'follow' command expects a single argument")
+	}
+
+	user, err := state.db.GetUser(context.Background(), state.config.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("Failed to find user info for current user name: %w", err)
+	}
+
+	feedUrl := arguments[0]
+	feed, err := state.db.GetFeed(context.Background(), feedUrl)
+	if err != nil {
+		return fmt.Errorf("Failed to find feed by url: %w", err)
+	}
+
+	now := time.Now()
+	feedFollow, err := state.db.CreateFeedFollow(context.Background(),
+		database.CreateFeedFollowParams{
+			ID:        uuid.New(),
+			FeedID:    feed.ID,
+			UserID:    user.ID,
+			CreatedAt: now,
+			UpdatedAt: now,
+		})
+	if err != nil {
+		return fmt.Errorf("Failed to created follow: %w", err)
+	}
+
+	fmt.Printf("User '%s' is now following the feed '%s'\n", feedFollow.UserName, feedFollow.FeedName)
+
+	return nil
+}
+
+func listFollowedFeedsCommand(state *State, arguments []string) error {
+	follows, err := state.db.GetFeedFollowsForUser(context.Background(), state.config.CurrentUserName)
+	if err != nil {
+		return fmt.Errorf("Failed to fetch followed feeds: %w", err)
+	}
+
+	for _, follow := range follows {
+		fmt.Printf("%s\n", follow.FeedName)
 	}
 	return nil
 }
@@ -183,6 +243,14 @@ func getCliCommands() map[string]cliCommand {
 		"feeds": {
 			description: "list all stored RSS feeds",
 			callback:    listFeedsCommand,
+		},
+		"follow": {
+			description: "Follow a registered feed by url",
+			callback:    followFeedCommand,
+		},
+		"following": {
+			description: "Lists all feeds the user is following",
+			callback:    listFollowedFeedsCommand,
 		},
 	}
 }
